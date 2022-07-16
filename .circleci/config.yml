@@ -1,0 +1,21 @@
+version: 2.1
+setup: true
+orbs:
+  continuation: circleci/continuation@0.1.2
+
+jobs:
+  setup:
+    machine: true
+    resource_class: vela-games/linux-runner-small
+    steps:
+      - checkout
+      - run: |
+          /home/ubuntu/UnrealEngine/Engine/Build/BatchFiles/RunUAT.sh BuildGraph -Target=All -Script=$PWD/Tools/BuildGraph.xml -Export=$PWD/ExportedGraph.json
+          ./Tools/buildgraph-to-circleci/buildgraph-to-circleci.py --json-graph $PWD/ExportedGraph.json > /tmp/generated_config.yml
+      - continuation/continue:
+          configuration_path: /tmp/generated_config.yml
+
+workflows:    
+  setup:
+    jobs:
+      - setup

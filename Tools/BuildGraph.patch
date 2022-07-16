@@ -1,0 +1,112 @@
+From 5426c063fc14ef006af6290ae7f5eaad7421be75 Mon Sep 17 00:00:00 2001
+From: Esteban Garcia <egarcia@vela.games>
+Date: Fri, 27 May 2022 14:48:48 +0100
+Subject: [PATCH] BuildGraph Patch for distributed build
+
+---
+ .../AutomationTool/BuildGraph/BuildGraph.cs      | 16 ++++++----------
+ .../AutomationTool/BuildGraph/TempStorage.cs     |  5 +++--
+ .../EpicGames.BuildGraph/BgScriptReader.cs       |  3 ++-
+ 3 files changed, 11 insertions(+), 13 deletions(-)
+
+diff --git a/Engine/Source/Programs/AutomationTool/BuildGraph/BuildGraph.cs b/Engine/Source/Programs/AutomationTool/BuildGraph/BuildGraph.cs
+index b027a4cbf..812ae8c6f 100644
+--- a/Engine/Source/Programs/AutomationTool/BuildGraph/BuildGraph.cs
++++ b/Engine/Source/Programs/AutomationTool/BuildGraph/BuildGraph.cs
+@@ -406,13 +406,8 @@ namespace AutomationTool
+ 			}
+ 
+ 			// Normalize the script filename
+-			FileReference FullScriptFile = FileReference.Combine(Unreal.RootDirectory, ScriptFileName);
+-			if (!FullScriptFile.IsUnderDirectory(Unreal.RootDirectory))
+-			{
+-				LogError("BuildGraph scripts must be under the UE root directory");
+-				return ExitCode.Error_Unknown;
+-			}
+-			ScriptFileName = FullScriptFile.MakeRelativeTo(Unreal.RootDirectory).Replace('\\', '/');
++			FileReference FullScriptFile = new FileReference(ScriptFileName);
++			
+ 
+ 			// Read the script from disk
+ 			BgGraph Graph = BgScriptReader.ReadAsync(Context, ScriptFileName, Arguments, DefaultProperties, PreprocessedFileName != null, Schema, Logger, SingleNodeName).Result;
+@@ -428,7 +423,7 @@ namespace AutomationTool
+ 			}
+ 
+ 			// Create the temp storage handler
+-			DirectoryReference RootDir = new DirectoryReference(CommandUtils.CmdEnv.LocalRoot);
++			DirectoryReference RootDir = new DirectoryReference(Environment.GetEnvironmentVariable("BUILD_GRAPH_PROJECT_ROOT") ?? CommandUtils.CmdEnv.LocalRoot);
+ 			TempStorage Storage = new TempStorage(RootDir, DirectoryReference.Combine(RootDir, "Engine", "Saved", "BuildGraph"), (SharedStorageDir == null)? null : new DirectoryReference(SharedStorageDir), bWriteToSharedStorage);
+ 			if(!bResume)
+ 			{
+@@ -1051,7 +1046,7 @@ namespace AutomationTool
+ 		/// <returns>True if the node built successfully, false otherwise.</returns>
+ 		bool BuildNode(JobContext Job, BgGraph Graph, BgNode Node, Dictionary<BgTask, CustomTask> TaskInfoToTask, TempStorage Storage, bool bWithBanner)
+ 		{
+-			DirectoryReference RootDir = new DirectoryReference(CommandUtils.CmdEnv.LocalRoot);
++			DirectoryReference RootDir = new DirectoryReference(Environment.GetEnvironmentVariable("BUILD_GRAPH_PROJECT_ROOT") ?? CommandUtils.CmdEnv.LocalRoot);
+ 
+ 			// Create the mapping of tag names to file sets
+ 			Dictionary<string, HashSet<FileReference>> TagNameToFileSet = new Dictionary<string,HashSet<FileReference>>();
+@@ -1126,7 +1121,7 @@ namespace AutomationTool
+ 					ModifiedFiles.Add(File.RelativePath, Message);
+ 				}
+ 			}
+-			if(ModifiedFiles.Count > 0)
++			if(ModifiedFiles.Count > 0 && Environment.GetEnvironmentVariable("BUILD_GRAPH_ALLOW_MUTATION") != "true")
+ 			{
+ 				throw new AutomationException("Build {0} from a previous step have been modified:\n{1}", (ModifiedFiles.Count == 1)? "product" : "products", String.Join("\n", ModifiedFiles.Select(x => x.Value)));
+ 			}
+@@ -1583,3 +1578,4 @@ namespace AutomationTool
+ 	}
+ }
+ 
++
+diff --git a/Engine/Source/Programs/AutomationTool/BuildGraph/TempStorage.cs b/Engine/Source/Programs/AutomationTool/BuildGraph/TempStorage.cs
+index 734b9b158..15c93a9e1 100644
+--- a/Engine/Source/Programs/AutomationTool/BuildGraph/TempStorage.cs
++++ b/Engine/Source/Programs/AutomationTool/BuildGraph/TempStorage.cs
+@@ -234,7 +234,7 @@ namespace AutomationTool
+ 			}
+ 			else
+ 			{
+-				if (RequireMatchingTimestamps() && !TempStorage.IsDuplicateBuildProduct(LocalFile))
++				if (RequireMatchingTimestamps() && !TempStorage.IsDuplicateBuildProduct(LocalFile) && Environment.GetEnvironmentVariable("BUILD_GRAPH_ALLOW_MUTATION") != "true")
+ 				{
+ 					Message = String.Format("File date/time mismatch for {0} - was {1}, expected {2}, TimeDifference {3}", RelativePath, Info.LastWriteTime, ExpectedLocal, TimeDifference);
+ 					return false;
+@@ -835,7 +835,7 @@ namespace AutomationTool
+ 				DirectoryReference.CreateDirectory(LocalNodeDir);
+ 
+ 				// Compress the files and copy to shared storage if necessary
+-				bool bRemote = SharedDir != null && bPushToRemote && bWriteToSharedStorage;
++				bool bRemote = SharedDir != null && (bPushToRemote || NodeName.StartsWith("Compile UE4Server") || NodeName.StartsWith("Compile UnrealServer")) && bWriteToSharedStorage;
+ 				if(bRemote)
+ 				{
+ 					// Create the shared directory for this node
+@@ -1497,3 +1497,4 @@ namespace AutomationTool
+ 		}
+ 	}
+ }
++
+diff --git a/Engine/Source/Programs/Shared/EpicGames.BuildGraph/BgScriptReader.cs b/Engine/Source/Programs/Shared/EpicGames.BuildGraph/BgScriptReader.cs
+index fcc917d7e..e780540d1 100644
+--- a/Engine/Source/Programs/Shared/EpicGames.BuildGraph/BgScriptReader.cs
++++ b/Engine/Source/Programs/Shared/EpicGames.BuildGraph/BgScriptReader.cs
+@@ -1390,6 +1390,7 @@ namespace EpicGames.BuildGraph
+ 				if (ChildElement.Name == "Default" || await EvaluateConditionAsync(ChildElement))
+ 				{
+ 					await ReadContentsAsync(ChildElement);
++					break;
+ 				}
+ 			}
+ 		}
+@@ -1998,4 +1999,4 @@ namespace EpicGames.BuildGraph
+ 			return Result;
+ 		}
+ 	}
+-}
+\ No newline at end of file
++}
+-- 
+2.35.1.windows.2
+

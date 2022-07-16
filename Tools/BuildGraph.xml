@@ -1,0 +1,138 @@
+<?xml version='1.0' ?>
+<BuildGraph xmlns="http://www.epicgames.com/BuildGraph" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.epicgames.com/BuildGraph ./Schema.xsd" >
+
+  <!-- Environment options -->
+  <Option Name="ProjectRoot" Restrict=".*" DefaultValue="" Description="Path to the directory that contains the .uproject" />
+
+  <!-- General options -->
+  <Option Name="UProjectPath" Restrict=".*" DefaultValue="" Description="Path to the .uproject file" />
+  
+  <Option Name="EditorTarget" Restrict="[^ ]+" DefaultValue="FirstPersonGameEditor" Description="Name of the editor target to be built" />
+  <Option Name="GameTarget" Restrict="[^ ]*" DefaultValue="FirstPersonGame" Description="Name of game targets to build, e.g. UE4Game" />
+  
+  <Option Name="GameTargetPlatformsCookedOnWin" Restrict="[^ ]*" DefaultValue="Win64" Description="List of the game target platforms to cook on win64 for, separated by semicolons, eg. Win64;Win32;Android"/>
+  <Option Name="GameTargetPlatformsCookedOnLinux" Restrict="[^ ]*" DefaultValue="Linux" Description="List of the game target platforms to cook on linux for, separated by semicolons, eg. Win64;Win32;Android"/>
+  <Option Name="GameTargetPlatformsBuiltOnWin" Restrict="[^ ]*" DefaultValue="Win64" Description="List of the game target platforms to build on win64 for, separated by semicolons, eg. Win64;Win32;Android"/>
+  <Option Name="GameTargetPlatformsBuiltOnLinux" Restrict="[^ ]*" DefaultValue="Linux" Description="List of the game target platforms to build on linux for, separated by semicolons, eg. Win64;Win32;Android"/>
+
+  <Option Name="GameConfigurations" Restrict="[^ ]*" DefaultValue="Development" Description="List of configurations to build the game targets for, e.g. Development;Shipping" />
+
+  <!-- Stage options -->
+  <Option Name="StageDirectory" Restrict=".+" DefaultValue="dist" Description="The path under which to place all of the staged builds" />
+
+  <Property Name="GameBinaries" Value="" />
+  <Property Name="GameCookedContent" Value="" />
+  <Property Name="GameStaged" Value="" />
+  <Property Name="GamePatched" Value="" />
+  
+  <!-- Targets that we will execute on a Windows machine. -->
+  <Agent Name="Windows Build" Type="UEWindowsRunner">
+
+    <!-- Compile the editor for Windows (necessary for cook later) -->
+    <Node Name="Compile $(EditorTarget) Win64" Produces="#EditorBinaries">
+      <Compile Target="$(EditorTarget)" Platform="Win64" Configuration="Development" Tag="#EditorBinaries" Arguments="-Project=&quot;$(UProjectPath)&quot;"/>
+    </Node>
+
+    <!-- Compile the game (targeting the Game target, not Client) -->
+    <ForEach Name="TargetPlatform" Values="$(GameTargetPlatformsBuiltOnWin)">
+      <ForEach Name="TargetConfiguration" Values="$(GameConfigurations)">
+        <Node Name="Compile $(GameTarget) $(TargetPlatform) $(TargetConfiguration)" Produces="#GameBinaries_$(GameTarget)_$(TargetPlatform)_$(TargetConfiguration)">
+          <Compile Target="$(GameTarget)" Platform="$(TargetPlatform)" Configuration="$(TargetConfiguration)" Tag="#GameBinaries_$(GameTarget)_$(TargetPlatform)_$(TargetConfiguration)" Arguments="-Project=&quot;$(UProjectPath)&quot;"/>
+          <Tag Files="#GameBinaries_$(GameTarget)_$(TargetPlatform)_$(TargetConfiguration)" Filter="*.target" With="#GameReceipts_$(GameTarget)_$(TargetPlatform)_$(TargetConfiguration)"/>
+          <SanitizeReceipt Files="#GameReceipts_$(GameTarget)_$(TargetPlatform)_$(TargetConfiguration)" />
+        </Node>
+        <Property Name="GameBinaries" Value="$(GameBinaries)#GameBinaries_$(GameTarget)_$(TargetPlatform)_$(TargetConfiguration);"/>
+      </ForEach>
+    </ForEach>
+  </Agent>
+
+  <!-- Targets that we will execute on a Linux machine. -->
+  <Agent Name="Linux Build" Type="UELinuxRunner">
+
+    <!-- Compile the editor for Linux (necessary for cook later) -->
+    <Node Name="Compile $(EditorTarget) Linux" Produces="#LinuxEditorBinaries">
+      <Compile Target="$(EditorTarget)" Platform="Linux" Configuration="Development" Tag="#LinuxEditorBinaries" Arguments="-Project=&quot;$(UProjectPath)&quot;"/>
+    </Node>
+
+    <!-- Compile the game (targeting the Game target, not Client) -->
+    <ForEach Name="TargetPlatform" Values="$(GameTargetPlatformsBuiltOnLinux)">
+      <ForEach Name="TargetConfiguration" Values="$(GameConfigurations)">
+        <Node Name="Compile $(GameTarget) $(TargetPlatform) $(TargetConfiguration)" Produces="#GameBinaries_$(GameTarget)_$(TargetPlatform)_$(TargetConfiguration)">
+          <Compile Target="$(GameTarget)" Platform="$(TargetPlatform)" Configuration="$(TargetConfiguration)" Tag="#GameBinaries_$(GameTarget)_$(TargetPlatform)_$(TargetConfiguration)" Arguments="-Project=&quot;$(UProjectPath)&quot;"/>
+          <Tag Files="#GameBinaries_$(GameTarget)_$(TargetPlatform)_$(TargetConfiguration)" Filter="*.target" With="#GameReceipts_$(GameTarget)_$(TargetPlatform)_$(TargetConfiguration)"/>
+          <SanitizeReceipt Files="#GameReceipts_$(GameTarget)_$(TargetPlatform)_$(TargetConfiguration)" />
+        </Node>
+        <Property Name="GameBinaries" Value="$(GameBinaries)#GameBinaries_$(GameTarget)_$(TargetPlatform)_$(TargetConfiguration);"/>
+      </ForEach>
+    </ForEach>
+  </Agent>
+
+  <!-- Targets that we will execute on a Windows machine. -->
+  <Agent Name="Windows Cook" Type="UEWindowsRunner">
+    <!-- Cook for game platforms (targeting the Game target, not Client) -->
+    <ForEach Name="TargetPlatform" Values="$(GameTargetPlatformsCookedOnWin)">
+      <Node Name="Cook Game $(TargetPlatform) Win64" Requires="#EditorBinaries" Produces="#GameCookedContent_$(TargetPlatform)">
+        <Property Name="CookPlatform" Value="$(TargetPlatform)" />
+        <Property Name="CookPlatform" Value="Windows" If="'$(CookPlatform)' == 'Win64'" />
+        <Property Name="CookPlatform" Value="$(CookPlatform)" If="(('$(CookPlatform)' == 'Windows') or ('$(CookPlatform)' == 'Mac') or ('$(CookPlatform)' == 'Linux'))" />
+        <Cook Project="$(UProjectPath)" Platform="$(CookPlatform)" Arguments="-Compressed" Tag="#GameCookedContent_$(TargetPlatform)" />
+      </Node>
+      <Property Name="GameCookedContent" Value="$(GameCookedContent)#GameCookedContent_$(TargetPlatform);"/>
+    </ForEach>
+  </Agent>
+
+  <Agent Name="Linux Cook" Type="UELinuxRunner">
+    <ForEach Name="TargetPlatform" Values="$(GameTargetPlatformsCookedOnLinux)">
+      <Node Name="Cook Game $(TargetPlatform) Linux" Requires="#LinuxEditorBinaries" Produces="#GameCookedContent_$(TargetPlatform)">
+        <Property Name="CookPlatform" Value="$(TargetPlatform)" />
+        <Property Name="CookPlatform" Value="Windows" If="'$(CookPlatform)' == 'Win64'" />
+        <Property Name="CookPlatform" Value="$(CookPlatform)" If="(('$(CookPlatform)' == 'Windows') or ('$(CookPlatform)' == 'Mac') or ('$(CookPlatform)' == 'Linux'))" />
+        <Cook Project="$(UProjectPath)" Platform="$(CookPlatform)" Arguments="-Compressed" Tag="#GameCookedContent_$(TargetPlatform)" />
+      </Node>
+      <Property Name="GameCookedContent" Value="$(GameCookedContent)#GameCookedContent_$(TargetPlatform);"/>
+    </ForEach>
+  </Agent>
+
+  <!-- Targets that we will execute on a Windows machine. -->
+  <Agent Name="Windows Pak and Stage" Type="UEWindowsRunner">
+    <!-- Pak and stage the game (targeting the Game target, not Client) -->
+    <ForEach Name="TargetPlatform" Values="$(GameTargetPlatformsBuiltOnWin)">
+      <ForEach Name="TargetConfiguration" Values="$(GameConfigurations)">
+        <Node Name="Pak and Stage $(GameTarget) $(TargetPlatform) $(TargetConfiguration)" Requires="#GameBinaries_$(GameTarget)_$(TargetPlatform)_$(TargetConfiguration);#GameCookedContent_$(TargetPlatform)" Produces="#GameStaged_$(GameTarget)_$(TargetPlatform)_$(TargetConfiguration)" >
+          <Property Name="StagePlatform" Value="$(TargetPlatform)" />
+          <Property Name="StagePlatform" Value="Windows" If="'$(StagePlatform)' == 'Win64'" />
+          <Property Name="DisableCodeSign" Value="" />
+          <Property Name="DisableCodeSign" Value="-NoCodeSign" If="('$(TargetPlatform)' == 'Win64') or ('$(TargetPlatform)' == 'Mac') or ('$(TargetPlatform)' == 'Linux')" />
+          <Spawn Exe="c:\UnrealEngine\Engine\Build\BatchFiles\RunUAT.bat" Arguments="BuildCookRun -project=$(UProjectPath) -nop4 $(DisableCodeSign) -platform=$(TargetPlatform) -clientconfig=$(TargetConfiguration) -SkipCook -cook -pak -stage -stagingdirectory=$(StageDirectory) -compressed -unattended -stdlog" />
+          <Zip FromDir="$(StageDirectory)\$(StagePlatform)" ZipFile="$(ProjectRoot)\dist_win64.zip" />
+          <Tag BaseDir="$(StageDirectory)\$(StagePlatform)" Files="..." With="#GameStaged_$(GameTarget)_$(TargetPlatform)_$(TargetConfiguration)" />
+        </Node>
+        <Property Name="GameStaged" Value="$(GameStaged)#GameStaged_$(GameTarget)_$(TargetPlatform)_$(TargetConfiguration);"  />
+      </ForEach>
+    </ForEach>
+  </Agent>
+
+  <Agent Name="Linux Pak and Stage" Type="UELinuxRunner">
+    <!-- Pak and stage the dedicated server -->
+    <ForEach Name="TargetPlatform" Values="$(GameTargetPlatformsBuiltOnLinux)">
+      <ForEach Name="TargetConfiguration" Values="$(GameConfigurations)">
+        <Node Name="Pak and Stage $(GameTarget) $(TargetPlatform) $(TargetConfiguration)" Requires="#GameBinaries_$(GameTarget)_$(TargetPlatform)_$(TargetConfiguration);#GameCookedContent_$(TargetPlatform)"  Produces="#GameStaged_$(GameTarget)_$(TargetPlatform)_$(TargetConfiguration)">
+          <Property Name="StagePlatform" Value="$(TargetPlatform)"/>
+          <Property Name="DisableCodeSign" Value="" />
+          <Property Name="DisableCodeSign" Value="-NoCodeSign" If="('$(TargetPlatform)' == 'Win64') or ('$(TargetPlatform)' == 'Mac') or ('$(TargetPlatform)' == 'Linux')" />
+          <Spawn Exe="/home/ubuntu/UnrealEngine/Engine/Build/BatchFiles/RunUAT.sh" Arguments="BuildCookRun -project=$(UProjectPath) -nop4 $(DisableCodeSign) -platform=$(TargetPlatform) -clientconfig=$(TargetConfiguration) -SkipCook -cook -pak -stage -stagingdirectory=$(StageDirectory) -compressed -unattended -stdlog" />
+          <Zip FromDir="$(StageDirectory)/$(StagePlatform)" ZipFile="$(ProjectRoot)/dist_linux.zip" />
+          <Tag BaseDir="$(StageDirectory)/$(StagePlatform)" Files="..." With="#GameStaged_$(GameTarget)_$(TargetPlatform)_$(TargetConfiguration)" />
+        </Node>
+        <Property Name="GameStaged" Value="$(GameStaged)#GameStaged_$(GameTarget)_$(TargetPlatform)_$(TargetConfiguration);" />
+      </ForEach>
+    </ForEach>
+  </Agent>
+
+  <!-- Targets that we will execute on a Windows machine. -->
+  <Agent Name="All" Type="UEWindowsRunner">
+    <!-- Node that we just use to easily execute all required nodes -->
+    <Node Name="End" Requires="$(GameStaged)">
+    </Node>
+  </Agent>
+</BuildGraph>
